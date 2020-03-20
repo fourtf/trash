@@ -2,7 +2,8 @@ use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     style::{Color, Print, ResetColor, SetForegroundColor},
-    Crossterm, ExecutableCommand,
+    terminal::enable_raw_mode,
+    ExecutableCommand,
 };
 use std::{
     env,
@@ -17,16 +18,17 @@ const APP_NAME: &'static str = "trash shell";
 fn main() {
     println!("{} v{}", APP_NAME, APP_VERSION);
 
-    // let res = ctrlc::set_handler(move || {
-    //     #[cfg(windows)]
-    //     stdout().execute(Print("^C")).unwrap();
-    // });
-    //
-    // match res {
-    //     Err(_) => print!("Error initializing the Ctrl+C handler."),
-    //     _ => {}
-    // }
+    // Ctrl+C handler
+    ctrlc::set_handler(move || {
+        #[cfg(windows)]
+        stdout().execute(Print("^C")).unwrap();
+    })
+    .unwrap_or_else(|_err| println!("Error initializing the Ctrl+C handler."));
 
+    // Raw mode
+    enable_raw_mode().unwrap_or_else(|_err| println!("Error enabling raw mode."));
+
+    // Main loop
     run_loop().unwrap();
 }
 
@@ -34,8 +36,6 @@ fn run_loop() -> crossterm::Result<()> {
     loop {
         // print!("[1]");
         print_status()?;
-
-        let ct = Crossterm::new();
 
         while !event::poll(std::time::Duration::from_secs(1))? {}
 
@@ -144,7 +144,7 @@ fn print_status() -> crossterm::Result<()> {
     execute!(
         stdout(),
         SetForegroundColor(Color::Red),
-        Print("\n"),
+        Print("\r\n"),
         Print(pwd()),
         Print("> "),
         ResetColor
