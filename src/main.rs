@@ -1,10 +1,15 @@
+#![allow(unused_imports)]
+use crossterm::cursor::MoveDown;
+use crossterm::cursor::MoveTo;
+use crossterm::cursor::MoveUp;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-    execute,
+    execute, queue,
     style::{Color, Print, ResetColor, SetForegroundColor},
-    terminal::enable_raw_mode,
+    terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
     ExecutableCommand,
 };
+use std::cell::Cell;
 use std::{
     env,
     ffi::OsString,
@@ -34,62 +39,75 @@ fn main() {
 
 fn run_loop() -> crossterm::Result<()> {
     loop {
-        // print!("[1]");
-        print_status()?;
+        let mut line = CmdLine::new();
+        line.print()?;
 
         while !event::poll(std::time::Duration::from_secs(1))? {}
 
-        match event::read()? {
-            Event::Key(KeyEvent {
-                code: KeyCode::Char('c'),
-                modifiers: KeyModifiers::CONTROL,
-            }) => {
-                brint("[Ctrl+C]")?;
+        loop {
+            match event::read()? {
+                // exit
+                Event::Key(KeyEvent {
+                    code: KeyCode::Char('z'),
+                    modifiers: KeyModifiers::CONTROL,
+                }) => {
+                    brint_debug("[Ctrl+z]")?;
+                    return Ok(());
+                }
+                Event::Key(KeyEvent {
+                    code: KeyCode::Esc,
+                    modifiers: _,
+                }) => {
+                    brint_debug("[Esc]")?;
+                    return Ok(());
+                }
+
+                // cancel input
+                Event::Key(KeyEvent {
+                    code: KeyCode::Char('c'),
+                    modifiers: KeyModifiers::CONTROL,
+                }) => {
+                    brint_debug("[Ctrl+C]")?;
+                    break;
+                }
+
+                // enter -> execute command
+                // Event::Key(KeyEvent {
+                //     code: KeyCode::Enter,
+                //     modifiers: _,
+                // }) => {
+                //     if !line.is_empty() {
+                //         exec_native(
+                //             &line
+                //                 .split_whitespace()
+                //                 .map(|word| word.to_owned())
+                //                 .collect(),
+                //         );
+                //     }
+
+                //     line.clear();
+                //     break;
+                // }
+
+                // misc
+                e => {
+                    line.handle_event(e)?;
+                } // Event::Key(KeyEvent {
+                  //     code: a,
+                  //     modifiers: b,
+                  // }) => {
+                  //     // line.handle_event())
+
+                  //     // brint_debug(format!("[{:?} {:?}]", a, b))?;
+                  // }
+
+                  // Event::Mouse(m) => {}
+                  // Event::Resize(x, y) => {
+                  //     brint_debug(format!("[resize: {} {}]", x, y))?;
+                  // }
+                  // _ => {}
             }
-            Event::Key(KeyEvent {
-                code: KeyCode::Char('a'),
-                modifiers: KeyModifiers::CONTROL,
-            }) => {
-                brint("[Ctrl+a]")?;
-            }
-            Event::Key(KeyEvent {
-                code: KeyCode::Char('A'),
-                modifiers: KeyModifiers::CONTROL,
-            }) => {
-                brint("[Ctrl+A]")?;
-            }
-            Event::Key(KeyEvent {
-                code: KeyCode::Esc,
-                modifiers: _,
-            }) => {
-                std::process::exit(0);
-            }
-            Event::Key(KeyEvent {
-                code: a,
-                modifiers: b,
-            }) => {
-                brint(format!("[{:?} {:?}]", a, b))?;
-            }
-            // Event::Mouse(m) => {}
-            // Event::Resize(x, y) => {}
-            _ => {}
         }
-
-        // print!("[2]");
-
-        // let mut line = String::new();
-        // print!("[1]");
-
-        // stdin().read_line(&mut line)?;
-
-        // let chars: Vec<char> = line.chars().collect();
-
-        // print!("[len: {}]", line.len());
-        // print!("[char_len: {}]", chars.len());
-        // if chars.len() >= 1 {
-        //     print!("[ord: {}]", chars[0].to_digit(10).unwrap_or(0));
-        // }
-        // print!("[2]");
 
         // println!("[echo: {}]", &line);
 
@@ -111,12 +129,25 @@ fn run_loop() -> crossterm::Result<()> {
 }
 
 fn brint<T: std::fmt::Display + Clone>(s: T) -> crossterm::Result<()> {
-    execute!(
-        stdout(),
-        SetForegroundColor(Color::Green),
-        Print(s),
-        ResetColor
-    )?;
+    execute!(stdout(), Print(s))?;
+
+    Ok(())
+}
+
+fn brint_debug<T: std::fmt::Display + Clone>(s: T) -> crossterm::Result<()> {
+    brint_colored(s, Color::Green)
+}
+
+fn brint_resultln<T: std::fmt::Display + Clone>(s: T) -> crossterm::Result<()> {
+    brint_colored(s, Color::Blue)
+}
+
+fn brint_errorln<T: std::fmt::Display + Clone>(s: T) -> crossterm::Result<()> {
+    brint_colored(s, Color::Red)
+}
+
+fn brint_colored<T: std::fmt::Display + Clone>(s: T, color: Color) -> crossterm::Result<()> {
+    execute!(stdout(), SetForegroundColor(color), Print(s), ResetColor)?;
 
     Ok(())
 }
@@ -124,33 +155,112 @@ fn brint<T: std::fmt::Display + Clone>(s: T) -> crossterm::Result<()> {
 fn exec_native(words: &Vec<String>) {
     let words: Vec<OsString> = words.iter().map(|word| word.into()).collect();
 
-    let os_cmd: std::ffi::OsString = words[0].to_owned().into();
+    let os_cmd: std::ffi::OsString = words
+        .get(0)
+        .map(|x| x.to_owned().into())
+        .unwrap_or("".into());
+
+    brint("\r\n").ok();
+
+    // run program
+    disable_raw_mode().ok();
     let exit_status = Command::new(&os_cmd)
-        .args(words[1..].iter())
+        .args(words.iter().skip(1))
         .spawn()
         .and_then(|mut c| c.wait());
+    enable_raw_mode().ok();
 
     match exit_status {
         Ok(status) => {
-            print!("result: {:?}", status.code());
+            brint_resultln(format!("\r[{}]", status.code().unwrap_or(0))).ok();
         }
         Err(e) => {
-            print!("{}", e);
+            brint_errorln(format!("\r\n{}", e)).ok();
         }
     }
 }
 
-fn print_status() -> crossterm::Result<()> {
-    execute!(
-        stdout(),
-        SetForegroundColor(Color::Red),
-        Print("\r\n"),
-        Print(pwd()),
-        Print("> "),
-        ResetColor
-    )?;
+#[derive(Default)]
+struct CmdLine {
+    content: String,
+    line_count: Cell<usize>,
+}
 
-    Ok(())
+impl CmdLine {
+    fn new() -> CmdLine {
+        let line = CmdLine::default();
+        line.line_count.set(1);
+        return line;
+    }
+
+    fn print(&self) -> crossterm::Result<()> {
+        let mut stdout = stdout();
+        let (term_width, _term_height) = crossterm::terminal::size()?;
+        let (_x, y) = crossterm::cursor::position()?;
+
+        // assemble line to be drawn
+        let mut words: Vec<(String, Color)> = Vec::new();
+
+        words.push((pwd(), Color::Red));
+        words.push(("> ".to_owned(), Color::Red));
+        words.push((format!("{}", term_width), Color::Blue));
+        words.push((self.content.clone(), Color::Reset));
+
+        // calculate width
+        let line_width: usize = words.iter().fold(0, |acc: usize, x| acc + x.0.len());
+        let line_count: usize = ((line_width.max(1) - 1) / (term_width as usize)) + 1;
+
+        // queue output
+        for _ in 0..(self.line_count.get() - 1) {
+            queue!(stdout, Clear(ClearType::CurrentLine), MoveUp(1))?;
+        }
+
+        queue!(
+            stdout,
+            MoveTo(0, y - self.line_count.get() as u16 + 1),
+            Clear(ClearType::CurrentLine)
+        )?;
+
+        for word in words {
+            queue!(stdout, SetForegroundColor(word.1), Print(word.0))?;
+        }
+
+        // write output
+        stdout.flush()?;
+
+        // save state
+        self.line_count.set(line_count.max(1));
+
+        Ok(())
+    }
+
+    fn handle_event(&mut self, e: crossterm::event::Event) -> crossterm::Result<()> {
+        match e {
+            // input
+            Event::Key(KeyEvent {
+                code: KeyCode::Char(c),
+                modifiers: _,
+            }) => {
+                // brint(c)?;
+
+                self.content.push(c);
+                self.print()?;
+            }
+            Event::Key(KeyEvent {
+                code: KeyCode::Backspace,
+                modifiers: _,
+            }) => {
+                if !self.content.is_empty() {
+                    // brint("\x08 \x08")?;
+
+                    self.content.pop();
+                    self.print()?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 fn pwd() -> String {
