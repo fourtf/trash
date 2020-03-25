@@ -1,8 +1,6 @@
 #![allow(unused_imports)]
-use crossterm::cursor::MoveDown;
-use crossterm::cursor::MoveTo;
-use crossterm::cursor::MoveUp;
 use crossterm::{
+    cursor::{MoveDown, MoveTo, MoveUp},
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute, queue,
     style::{Color, Print, ResetColor, SetForegroundColor},
@@ -67,27 +65,35 @@ fn run_loop() -> crossterm::Result<()> {
                     code: KeyCode::Char('c'),
                     modifiers: KeyModifiers::CONTROL,
                 }) => {
-                    brint_debug("[Ctrl+C]")?;
+                    brint_debug("[Ctrl+C]\r\n")?;
                     break;
                 }
 
                 // enter -> execute command
-                // Event::Key(KeyEvent {
-                //     code: KeyCode::Enter,
-                //     modifiers: _,
-                // }) => {
-                //     if !line.is_empty() {
-                //         exec_native(
-                //             &line
-                //                 .split_whitespace()
-                //                 .map(|word| word.to_owned())
-                //                 .collect(),
-                //         );
-                //     }
+                Event::Key(KeyEvent {
+                    code: KeyCode::Enter,
+                    modifiers: _,
+                }) => {
+                    if !line.is_empty() {
+                        let words: Vec<String> = line
+                            .content()
+                            .split_whitespace()
+                            .map(|word| word.to_owned())
+                            .collect();
 
-                //     line.clear();
-                //     break;
-                // }
+                        if !words.is_empty() {
+                            if words[0] == "cd" {
+                                if words.len() > 1 {
+                                    cd(&words[1]);
+                                }
+                            } else {
+                                exec_native(&words);
+                            }
+                        }
+                    }
+
+                    break;
+                }
 
                 // misc
                 e => {
@@ -172,10 +178,10 @@ fn exec_native(words: &Vec<String>) {
 
     match exit_status {
         Ok(status) => {
-            brint_resultln(format!("\r[{}]", status.code().unwrap_or(0))).ok();
+            brint_resultln(format!("\r[{}]\r\n", status.code().unwrap_or(0))).ok();
         }
         Err(e) => {
-            brint_errorln(format!("\r\n{}", e)).ok();
+            brint_errorln(format!("\r\n{}\r\n", e)).ok();
         }
     }
 }
@@ -203,8 +209,45 @@ impl CmdLine {
 
         words.push((pwd(), Color::Red));
         words.push(("> ".to_owned(), Color::Red));
-        words.push((format!("{}", term_width), Color::Blue));
-        words.push((self.content.clone(), Color::Reset));
+
+        let chars: Vec<char> = self.content.chars().collect();
+        let mut i = 0;
+
+        let mut head = String::new();
+        let mut cmd = String::new();
+        let mut tail = String::new();
+
+        while i < chars.len() {
+            if chars[i].is_whitespace() {
+                head.push(chars[i]);
+            } else {
+                while i < chars.len() {
+                    if chars[i].is_whitespace() {
+                        while i < chars.len() {
+                            tail.push(chars[i]);
+                            i += 1;
+                        }
+                    } else {
+                        cmd.push(chars[i]);
+                    }
+                    i += 1;
+                }
+            }
+            i += 1;
+        }
+
+        words.push((head, Color::Reset));
+        words.push((
+            cmd.clone(),
+            if which::which(cmd).is_ok() {
+                Color::Green
+            } else {
+                Color::Red
+            },
+        ));
+        words.push((tail, Color::Reset));
+
+        //words.push((self.content.clone(), Color::Reset));
 
         // calculate width
         let line_width: usize = words.iter().fold(0, |acc: usize, x| acc + x.0.len());
@@ -261,10 +304,54 @@ impl CmdLine {
         }
         Ok(())
     }
+
+    fn is_empty(&self) -> bool {
+        self.content.is_empty()
+    }
+
+    pub fn content(&self) -> &String {
+        &self.content
+    }
 }
 
 fn pwd() -> String {
-    env::current_dir()
+    let mut string: String = env::current_dir()
         .map(|path| path.to_string_lossy().to_owned().to_string())
-        .unwrap_or("".to_owned())
+        .unwrap_or("".to_owned());
+
+    replace_home_dir(&mut string);
+
+    let path_components: Vec<&str> = string.split(std::path::MAIN_SEPARATOR).collect();
+    let x_d: Vec<&str> = path_components
+        .iter()
+        .take(path_components.len() - 1)
+        .map(|x| {
+            if x.len() == 0 {
+                ""
+            } else if x.len() == 2 && x.chars().next().unwrap() == ':' {
+                &x[0..1]
+            } else {
+                &x[0..1]
+            }
+        })
+        .collect();
+
+    let fmt: String = format!("{}", std::path::MAIN_SEPARATOR);
+
+    x_d.join(&fmt) + &fmt + path_components.last().unwrap()
+}
+
+fn replace_home_dir(s: &mut String) {
+    let home = dirs::home_dir()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    if s.starts_with(&home) {
+        *s = String::from("~") + &s[home.len()..];
+    }
+}
+
+fn cd(to: &String) {
+    std::env::set_current_dir(to).ok();
 }
