@@ -236,7 +236,7 @@ impl CmdLine {
         words.push((head, Color::Reset));
         words.push((
             cmd.clone(),
-            if which::which(cmd).is_ok() {
+            if has_builtin_cmd(&cmd) || which::which(cmd).is_ok() {
                 Color::Green
             } else {
                 Color::Red
@@ -356,10 +356,18 @@ fn replace_home_dir(s: &mut String) {
 static BUILTINS: phf::Map<&'static str, fn(&Vec<String>)> = phf_map! {
     "exit" => exit,
     "cd" => cd,
+    // "clear" => clear,
 };
 
 fn has_builtin(args: &Vec<String>) -> bool {
-    BUILTINS.contains_key(args.get(0).map(|x| &x[..]).unwrap_or(""))
+    match args.get(0) {
+        Some(cmd) => has_builtin_cmd(&cmd),
+        None => false,
+    }
+}
+
+fn has_builtin_cmd(cmd: &String) -> bool {
+    BUILTINS.contains_key(&cmd[..])
 }
 
 fn exec_builtin(args: &Vec<String>) -> bool {
@@ -374,7 +382,7 @@ fn exec_builtin(args: &Vec<String>) -> bool {
     }
 }
 
-fn exit(args: &Vec<String>) {
+fn exit(_args: &Vec<String>) {
     std::process::exit(0);
 }
 
@@ -387,3 +395,7 @@ fn cd(args: &Vec<String>) {
         std::env::set_current_dir(to).ok();
     }
 }
+
+// fn clear(_args: &Vec<String>) {
+//     execute!(stdout(), crossterm::terminal::Clear(ClearType::All)).ok();
+// }
