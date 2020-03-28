@@ -7,6 +7,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
     ExecutableCommand,
 };
+use phf::phf_map;
 use std::cell::Cell;
 use std::{
     env,
@@ -81,14 +82,10 @@ fn run_loop() -> crossterm::Result<()> {
                             .map(|word| word.to_owned())
                             .collect();
 
-                        if !words.is_empty() {
-                            if words[0] == "cd" {
-                                if words.len() > 1 {
-                                    cd(&words[1]);
-                                }
-                            } else {
-                                exec_native(&words);
-                            }
+                        if has_builtin(&words) {
+                            exec_builtin(&words);
+                        } else {
+                            exec_native(&words);
                         }
                     }
 
@@ -352,6 +349,41 @@ fn replace_home_dir(s: &mut String) {
     }
 }
 
-fn cd(to: &String) {
-    std::env::set_current_dir(to).ok();
+//
+// builtins
+//
+
+static BUILTINS: phf::Map<&'static str, fn(&Vec<String>)> = phf_map! {
+    "exit" => exit,
+    "cd" => cd,
+};
+
+fn has_builtin(args: &Vec<String>) -> bool {
+    BUILTINS.contains_key(args.get(0).map(|x| &x[..]).unwrap_or(""))
+}
+
+fn exec_builtin(args: &Vec<String>) -> bool {
+    let cmd = args.get(0).map(|x| &x[..]).unwrap_or("");
+
+    if BUILTINS.contains_key(cmd) {
+        (BUILTINS[cmd])(args);
+
+        true
+    } else {
+        false
+    }
+}
+
+fn exit(args: &Vec<String>) {
+    std::process::exit(0);
+}
+
+fn cd(args: &Vec<String>) {
+    brint("xD").ok();
+
+    if let Some(to) = args.get(0) {
+        std::env::set_current_dir(to).ok();
+    } else if let Some(to) = dirs::home_dir() {
+        std::env::set_current_dir(to).ok();
+    }
 }
