@@ -196,7 +196,7 @@ fn exec_native(words: &Vec<String>) {
 
 #[cfg(not(windows))]
 fn exec_native_platform_dependant(func: &dyn Fn()) {
-    // func();
+    func();
 }
 
 #[cfg(windows)]
