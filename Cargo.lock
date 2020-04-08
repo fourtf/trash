@@ -553,6 +553,7 @@ dependencies = [
  "dirs",
  "phf",
  "which",
+ "winapi 0.3.8",
 ]
 
 [[package]]

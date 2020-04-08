@@ -12,3 +12,6 @@ ctrlc = "3.1.4"
 which = "3.1.1"
 dirs = "2.0.2"
 phf = { version = "0.8.0", features = ["macros"] }
+
+[target.'cfg(windows)'.dependencies]
+winapi = "0.3.7"

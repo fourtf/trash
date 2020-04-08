@@ -16,6 +16,15 @@ use std::{
     process::Command,
 };
 
+#[cfg(windows)]
+use winapi::{
+    shared::minwindef::DWORD,
+    um::{
+        consoleapi::{GetConsoleMode, SetConsoleMode},
+        processenv::GetStdHandle,
+    },
+};
+
 const APP_VERSION: &'static str = "0.1";
 const APP_NAME: &'static str = "trash shell";
 
@@ -166,20 +175,42 @@ fn exec_native(words: &Vec<String>) {
     brint("\r\n").ok();
 
     // run program
-    disable_raw_mode().ok();
-    let exit_status = Command::new(&os_cmd)
-        .args(words.iter().skip(1))
-        .spawn()
-        .and_then(|mut c| c.wait());
-    enable_raw_mode().ok();
+    exec_native_platform_dependant(&|| {
+        disable_raw_mode().ok();
+        let exit_status = Command::new(&os_cmd)
+            .args(words.iter().skip(1))
+            .spawn()
+            .and_then(|mut c| c.wait());
+        enable_raw_mode().ok();
 
-    match exit_status {
-        Ok(status) => {
-            brint_resultln(format!("\r[{}]\r\n", status.code().unwrap_or(0))).ok();
+        match exit_status {
+            Ok(status) => {
+                brint_resultln(format!("\r[{}]\r\n", status.code().unwrap_or(0))).ok();
+            }
+            Err(e) => {
+                brint_errorln(format!("\r\n{}\r\n", e)).ok();
+            }
         }
-        Err(e) => {
-            brint_errorln(format!("\r\n{}\r\n", e)).ok();
-        }
+    })
+}
+
+#[cfg(not(windows))]
+fn exec_native_platform_dependant(func: &dyn Fn()) {
+    // func();
+}
+
+#[cfg(windows)]
+fn exec_native_platform_dependant(func: &dyn Fn()) {
+    print!("\r\nasdf;asld';\r\n\r\n\r\n asdkjflasdjkfla;dsj");
+
+    unsafe {
+        let handle = GetStdHandle((-11i64) as DWORD);
+        let mode: DWORD = 0;
+        GetConsoleMode(handle, std::mem::transmute(&mode));
+
+        func();
+
+        SetConsoleMode(handle, mode);
     }
 }
 
