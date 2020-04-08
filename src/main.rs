@@ -201,8 +201,6 @@ fn exec_native_platform_dependant(func: &dyn Fn()) {
 
 #[cfg(windows)]
 fn exec_native_platform_dependant(func: &dyn Fn()) {
-    print!("\r\nasdf;asld';\r\n\r\n\r\n asdkjflasdjkfla;dsj");
-
     unsafe {
         let handle = GetStdHandle((-11i64) as DWORD);
         let mode: DWORD = 0;
