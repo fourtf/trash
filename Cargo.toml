@@ -1,17 +1,18 @@
 [package]
-name = "trsh"
-version = "0.1.0"
 authors = ["fourtf <tf.four@gmail.com>"]
 edition = "2018"
+name = "trsh"
+version = "0.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 crossterm = "0.16.0"
 ctrlc = "3.1.4"
-which = "3.1.1"
 dirs = "2.0.2"
-phf = { version = "0.8.0", features = ["macros"] }
+nom = "6.0.1"
+phf = {version = "0.8.0", features = ["macros"]}
+which = "3.1.1"
 
 [target.'cfg(windows)'.dependencies]
 winapi = "0.3.7"

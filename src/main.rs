@@ -5,7 +5,7 @@ use crossterm::{
     execute, queue,
     style::{Color, Print, ResetColor, SetForegroundColor},
     terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
-    ExecutableCommand,
+    write_ansi_code, ExecutableCommand,
 };
 use phf::phf_map;
 use std::cell::Cell;
@@ -24,6 +24,12 @@ use winapi::{
         processenv::GetStdHandle,
     },
 };
+
+mod command_line;
+use command_line::CmdLine;
+mod builtins;
+mod parser;
+use builtins::{exec_builtin, has_builtin, has_builtin_cmd};
 
 const APP_VERSION: &'static str = "0.1";
 const APP_NAME: &'static str = "trash shell";
@@ -85,16 +91,18 @@ fn run_loop() -> crossterm::Result<()> {
                     modifiers: _,
                 }) => {
                     if !line.is_empty() {
-                        let words: Vec<String> = line
-                            .content()
-                            .split_whitespace()
-                            .map(|word| word.to_owned())
-                            .collect();
+                        match parser::parse_program_call(line.content().as_str()) {
+                            Ok((_, call)) => {
+                                let mut words = vec![call.program];
+                                words.append(&mut call.args.clone());
 
-                        if has_builtin(&words) {
-                            exec_builtin(&words);
-                        } else {
-                            exec_native(&words);
+                                if has_builtin(&words) {
+                                    exec_builtin(&words);
+                                } else {
+                                    exec_native(&words);
+                                }
+                            }
+                            Err(_) => (),
                         }
                     }
 
@@ -211,220 +219,3 @@ fn exec_native_platform_dependant(func: &dyn Fn()) {
         SetConsoleMode(handle, mode);
     }
 }
-
-#[derive(Default)]
-struct CmdLine {
-    content: String,
-    line_count: Cell<usize>,
-}
-
-impl CmdLine {
-    fn new() -> CmdLine {
-        let line = CmdLine::default();
-        line.line_count.set(1);
-        return line;
-    }
-
-    fn print(&self) -> crossterm::Result<()> {
-        let mut stdout = stdout();
-        let (term_width, _term_height) = crossterm::terminal::size()?;
-        let (_x, y) = crossterm::cursor::position()?;
-
-        // assemble line to be drawn
-        let mut words: Vec<(String, Color)> = Vec::new();
-
-        words.push((pwd(), Color::Red));
-        words.push(("> ".to_owned(), Color::Red));
-
-        let chars: Vec<char> = self.content.chars().collect();
-        let mut i = 0;
-
-        let mut head = String::new();
-        let mut cmd = String::new();
-        let mut tail = String::new();
-
-        while i < chars.len() {
-            if chars[i].is_whitespace() {
-                head.push(chars[i]);
-            } else {
-                while i < chars.len() {
-                    if chars[i].is_whitespace() {
-                        while i < chars.len() {
-                            tail.push(chars[i]);
-                            i += 1;
-                        }
-                    } else {
-                        cmd.push(chars[i]);
-                    }
-                    i += 1;
-                }
-            }
-            i += 1;
-        }
-
-        words.push((head, Color::Reset));
-        words.push((
-            cmd.clone(),
-            if has_builtin_cmd(&cmd) || which::which(cmd).is_ok() {
-                Color::Green
-            } else {
-                Color::Red
-            },
-        ));
-        words.push((tail, Color::Reset));
-
-        //words.push((self.content.clone(), Color::Reset));
-
-        // calculate width
-        let line_width: usize = words.iter().fold(0, |acc: usize, x| acc + x.0.len());
-        let line_count: usize = ((line_width.max(1) - 1) / (term_width as usize)) + 1;
-
-        // queue output
-        for _ in 0..(self.line_count.get() - 1) {
-            queue!(stdout, Clear(ClearType::CurrentLine), MoveUp(1))?;
-        }
-
-        queue!(
-            stdout,
-            MoveTo(0, y - self.line_count.get() as u16 + 1),
-            Clear(ClearType::CurrentLine)
-        )?;
-
-        for word in words {
-            queue!(stdout, SetForegroundColor(word.1), Print(word.0))?;
-        }
-
-        // write output
-        stdout.flush()?;
-
-        // save state
-        self.line_count.set(line_count.max(1));
-
-        Ok(())
-    }
-
-    fn handle_event(&mut self, e: crossterm::event::Event) -> crossterm::Result<()> {
-        match e {
-            // input
-            Event::Key(KeyEvent {
-                code: KeyCode::Char(c),
-                modifiers: _,
-            }) => {
-                // brint(c)?;
-
-                self.content.push(c);
-                self.print()?;
-            }
-            Event::Key(KeyEvent {
-                code: KeyCode::Backspace,
-                modifiers: _,
-            }) => {
-                if !self.content.is_empty() {
-                    // brint("\x08 \x08")?;
-
-                    self.content.pop();
-                    self.print()?;
-                }
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
-    fn is_empty(&self) -> bool {
-        self.content.is_empty()
-    }
-
-    pub fn content(&self) -> &String {
-        &self.content
-    }
-}
-
-fn pwd() -> String {
-    let mut string: String = env::current_dir()
-        .map(|path| path.to_string_lossy().to_owned().to_string())
-        .unwrap_or("".to_owned());
-
-    replace_home_dir(&mut string);
-
-    let path_components: Vec<&str> = string.split(std::path::MAIN_SEPARATOR).collect();
-    let x_d: Vec<&str> = path_components
-        .iter()
-        .take(path_components.len() - 1)
-        .map(|x| {
-            if x.len() == 0 {
-                ""
-            } else if x.len() == 2 && x.chars().next().unwrap() == ':' {
-                &x[0..1]
-            } else {
-                &x[0..1]
-            }
-        })
-        .collect();
-
-    let fmt: String = format!("{}", std::path::MAIN_SEPARATOR);
-
-    x_d.join(&fmt) + &fmt + path_components.last().unwrap()
-}
-
-fn replace_home_dir(s: &mut String) {
-    let home = dirs::home_dir()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
-
-    if s.starts_with(&home) {
-        *s = String::from("~") + &s[home.len()..];
-    }
-}
-
-//
-// builtins
-//
-
-static BUILTINS: phf::Map<&'static str, fn(&Vec<String>)> = phf_map! {
-    "exit" => exit,
-    "cd" => cd,
-    // "clear" => clear,
-};
-
-fn has_builtin(args: &Vec<String>) -> bool {
-    match args.get(0) {
-        Some(cmd) => has_builtin_cmd(&cmd),
-        None => false,
-    }
-}
-
-fn has_builtin_cmd(cmd: &String) -> bool {
-    BUILTINS.contains_key(&cmd[..])
-}
-
-fn exec_builtin(args: &Vec<String>) -> bool {
-    let cmd = args.get(0).map(|x| &x[..]).unwrap_or("");
-
-    if BUILTINS.contains_key(cmd) {
-        (BUILTINS[cmd])(args);
-
-        true
-    } else {
-        false
-    }
-}
-
-fn exit(_args: &Vec<String>) {
-    std::process::exit(0);
-}
-
-fn cd(args: &Vec<String>) {
-    brint("xD").ok();
-
-    if let Some(to) = args.get(0) {
-        std::env::set_current_dir(to).ok();
-    } else if let Some(to) = dirs::home_dir() {
-        std::env::set_current_dir(to).ok();
-    }
-}
-
-// fn clear(_args: &Vec<String>) {
-//     execute!(stdout(), crossterm::terminal::Clear(ClearType::All)).ok();
-// }
